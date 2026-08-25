@@ -68,6 +68,63 @@
       var result = await window.Tesseract.recognize(dataUrl, 'eng');
       return result.data.text;
     };
+
+    // Opens the browser file chooser and returns the chosen file.
+    //
+    // Written here rather than taken from file_picker because that package's
+    // web implementation never attaches its <input> to the live document, and
+    // Chrome will not open a chooser for a disconnected input -- the button
+    // simply does nothing. This attaches the input, awaits the choice, and
+    // removes it again.
+    //
+    // Resolves to a JSON string {name, mime, data} where data is base64, or to
+    // null when the user cancels. One string in, one string out: the Dart side
+    // does every bit of decision-making, because JS here is untestable from
+    // the Dart test suite.
+    window.thatappPickFile = function (accept) {
+      return new Promise(function (resolve) {
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.accept = accept || '';
+        // Off-screen rather than display:none -- a hidden input is skipped by
+        // some browsers' chooser heuristics.
+        input.style.cssText =
+          'position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0';
+        document.body.appendChild(input);
+
+        var settled = false;
+        function finish(value) {
+          if (settled) return;
+          settled = true;
+          if (input.parentNode) input.parentNode.removeChild(input);
+          resolve(value);
+        }
+
+        input.addEventListener('change', function () {
+          var file = input.files && input.files[0];
+          if (!file) { finish(null); return; }
+          var reader = new FileReader();
+          reader.onerror = function () { finish(null); };
+          reader.onload = function () {
+            // reader.result is "data:<mime>;base64,<payload>".
+            var comma = String(reader.result).indexOf(',');
+            finish(JSON.stringify({
+              name: file.name,
+              mime: file.type || '',
+              data: String(reader.result).substring(comma + 1)
+            }));
+          };
+          reader.readAsDataURL(file);
+        });
+
+        // Fires when the chooser is dismissed without a selection. Not every
+        // browser sends it, so cancellation is also inferred from a change
+        // event carrying no file.
+        input.addEventListener('cancel', function () { finish(null); });
+
+        input.click();
+      });
+    };
   </script>
 </head>
 <body>
