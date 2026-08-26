@@ -134,6 +134,24 @@
         input.click();
       });
     };
+
+    // Hands a finished file to the browser as a download.
+    //
+    // Kept in JS because Dart cannot click an anchor for itself; the Dart side
+    // decides the bytes, the name, and the type, and this only delivers them.
+    window.thatappSaveFile = function (dataUrl, fileName) {
+      var link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = fileName;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      // Removed on a later tick: Safari aborts the download if the anchor
+      // disappears in the same turn as the click.
+      setTimeout(function () {
+        if (link.parentNode) link.parentNode.removeChild(link);
+      }, 0);
+    };
   </script>
 </head>
 <body>
