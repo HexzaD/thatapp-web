@@ -31,6 +31,110 @@
 
   <title>thatapp</title>
   <link rel="manifest" href="manifest.json">
+
+  <script>
+    // Opens the browser file chooser and returns the chosen file.
+    //
+    // Written here rather than taken from file_picker because that package's
+    // web implementation never attaches its <input> to the live document, and
+    // Chrome will not open a chooser for a disconnected input -- the button
+    // simply does nothing. This attaches the input, awaits the choice, and
+    // removes it again.
+    //
+    // Resolves to a JSON string {name, mime, data} where data is base64, or to
+    // null when the user cancels. One string in, one string out: the Dart side
+    // does every bit of decision-making, because JS here is untestable from
+    // the Dart test suite.
+    window.thatappPickFile = function (accept) {
+      return new Promise(function (resolve) {
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.accept = accept || '';
+        // Off-screen rather than display:none -- a hidden input is skipped by
+        // some browsers' chooser heuristics.
+        input.style.cssText =
+          'position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0';
+        document.body.appendChild(input);
+
+        var settled = false;
+        function finish(value) {
+          if (settled) return;
+          settled = true;
+          if (input.parentNode) input.parentNode.removeChild(input);
+          resolve(value);
+        }
+
+        input.addEventListener('change', function () {
+          var file = input.files && input.files[0];
+          if (!file) { finish(null); return; }
+          // Shrink before handing the bytes to Dart. A modern phone photo is
+          // 4000px wide and several megabytes; a receipt is legible far below
+          // that, and the smaller image uploads faster, stores smaller, and
+          // costs less to read. PDFs and anything unrecognised pass straight
+          // through untouched.
+          if (file.type.indexOf('image/') === 0 && file.type !== 'image/gif') {
+            var url = URL.createObjectURL(file);
+            var img = new Image();
+            img.onload = function () {
+              try {
+                var max = 2000;
+                var scale = Math.min(1, max / Math.max(img.width, img.height));
+                var w = Math.round(img.width * scale);
+                var h = Math.round(img.height * scale);
+                var canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                var ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, w, h);
+                URL.revokeObjectURL(url);
+                var dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                finish(JSON.stringify({
+                  name: file.name,
+                  mime: 'image/jpeg',
+                  data: dataUrl.substring(dataUrl.indexOf(',') + 1)
+                }));
+              } catch (e) {
+                // Canvas can fail on very large images; fall back to the
+                // original bytes rather than losing the receipt.
+                URL.revokeObjectURL(url);
+                readOriginalFor(file);
+              }
+            };
+            img.onerror = function () {
+              URL.revokeObjectURL(url);
+              readOriginalFor(file);
+            };
+            img.src = url;
+            return;
+          }
+
+          readOriginalFor(file);
+        });
+
+        function readOriginalFor(file) {
+          var reader = new FileReader();
+          reader.onerror = function () { finish(null); };
+          reader.onload = function () {
+            // reader.result is "data:<mime>;base64,<payload>".
+            var comma = String(reader.result).indexOf(',');
+            finish(JSON.stringify({
+              name: file.name,
+              mime: file.type || '',
+              data: String(reader.result).substring(comma + 1)
+            }));
+          };
+          reader.readAsDataURL(file);
+        }
+
+        // Fires when the chooser is dismissed without a selection. Not every
+        // browser sends it, so cancellation is also inferred from a change
+        // event carrying no file.
+        input.addEventListener('cancel', function () { finish(null); });
+
+        input.click();
+      });
+    };
+  </script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>
