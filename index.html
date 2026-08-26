@@ -33,6 +33,27 @@
   <link rel="manifest" href="manifest.json">
 
   <script>
+
+    // Removes the service worker earlier builds installed, and the caches it
+    // filled. Without this, anyone who has already loaded the app keeps being
+    // served the old bundle no matter how hard they refresh.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function (registrations) {
+        var hadOne = registrations.length > 0;
+        registrations.forEach(function (registration) {
+          registration.unregister();
+        });
+        if (hadOne && window.caches) {
+          caches.keys().then(function (names) {
+            return Promise.all(names.map(function (n) { return caches.delete(n); }));
+          }).then(function () {
+            // One reload to pick up the real files, only for the visitor who
+            // was still carrying a worker.
+            window.location.reload();
+          });
+        }
+      }).catch(function () {});
+    }
     // Opens the browser file chooser and returns the chosen file.
     //
     // Written here rather than taken from file_picker because that package's
